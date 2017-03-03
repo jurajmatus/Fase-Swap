@@ -2,8 +2,8 @@
 using namespace cv;
 using namespace std;
 
-CascadeClassifier faceDet("haarcascade_frontalface_default.xml");
-CascadeClassifier eyeDet("haarcascade_eye.xml");
+CascadeClassifier faceDet;
+CascadeClassifier eyeDet;
 
 Mat process(Mat img) {
 
@@ -16,14 +16,19 @@ Mat process(Mat img) {
 			Size(30, 30));
 
 	for (uint i = 0; i < faces.size(); i++) {
-		Point center(faces[i].x + faces[i].width / 2, faces[i].y + faces[i].height / 2);
-		ellipse(img, center, Size(faces[i].width / 2, faces[i].height / 2), 0,
-				0, 360, Scalar(255, 0, 255), 4, 8, 0);
 
 		Mat faceROI = gray(faces[i]);
 		std::vector<Rect> eyes;
 
 		eyeDet.detectMultiScale(faceROI, eyes, 1.1, 2,0 | CASCADE_SCALE_IMAGE, Size(30, 30));
+
+		if (eyes.size() < 2) {
+			continue;
+		}
+
+		Point center(faces[i].x + faces[i].width / 2, faces[i].y + faces[i].height / 2);
+		ellipse(img, center, Size(faces[i].width / 2, faces[i].height / 2), 0,
+				0, 360, Scalar(255, 0, 255), 4, 8, 0);
 
 		for (uint j = 0; j < eyes.size(); j++) {
 			Point eyeCenter(faces[i].x + eyes[j].x + eyes[j].width / 2,	faces[i].y + eyes[j].y + eyes[j].height / 2);
@@ -40,7 +45,11 @@ int main(int argc, char** argv) {
 	static const string WIN = "Face swapper";
 	Mat frame;
 
-	if (!cap.isOpened()) {
+	bool noError = faceDet.load("/usr/share/opencv/haarcascades/haarcascade_frontalface_default.xml");
+	noError = noError && eyeDet.load("/usr/share/opencv/haarcascades/haarcascade_eye.xml");
+	noError = noError && cap.isOpened();
+
+	if (!noError) {
 		return -1;
 	}
 

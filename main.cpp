@@ -1,14 +1,15 @@
 #include <opencv2/opencv.hpp>
+#include "structs.hpp"
 using namespace cv;
 using namespace std;
 
+// Classifiers, Trackers
 CascadeClassifier faceDet;
 CascadeClassifier eyeDet;
 
-Mat process(Mat img) {
+Head findHead(Mat img, Mat gray) {
 
-	Mat gray;
-	cvtColor(img, gray, CV_BGR2GRAY);
+	Head head;
 
 	vector<Rect> faces;
 
@@ -26,16 +27,61 @@ Mat process(Mat img) {
 			continue;
 		}
 
-		Point center(faces[i].x + faces[i].width / 2, faces[i].y + faces[i].height / 2);
-		ellipse(img, center, Size(faces[i].width / 2, faces[i].height / 2), 0,
-				0, 360, Scalar(255, 0, 255), 4, 8, 0);
-
-		for (uint j = 0; j < eyes.size(); j++) {
-			Point eyeCenter(faces[i].x + eyes[j].x + eyes[j].width / 2,	faces[i].y + eyes[j].y + eyes[j].height / 2);
-			int radius = cvRound((eyes[j].width + eyes[j].height) * 0.25);
-			circle(img, eyeCenter, radius, Scalar(255, 0, 0), 4, 8, 0);
-		}
+		head.face = faces[i];
+		head.eye1 = eyes[0];
+		head.eye2 = eyes[1];
 	}
+
+	return head;
+}
+
+vector<Point2f> findFeatures(Mat img, Mat gray, Rect inside = Rect(0, 0, 0, 0)) {
+
+	vector<Point2f> corners;
+	Mat mask;
+	if (inside.width > 0) {
+		mask = Mat::zeros(img.size(), CV_8U);
+		mask(inside) = 1;
+	}
+
+	goodFeaturesToTrack(gray, corners, 0, 0.01, 10, mask, 3, false, 0.04);
+
+	return corners;
+}
+
+Mat oldGray;
+vector<Point2f> oldFeatures;
+
+vector<Point2f> computeFlow(Mat img, Mat gray, vector<Point2f> oldFeatures) {
+
+	vector<uchar> status;
+	vector<float> err;
+	vector<Point2f> features;
+
+	TermCriteria termcrit(TermCriteria::COUNT|TermCriteria::EPS,20,0.03);
+	calcOpticalFlowPyrLK(oldGray, gray, oldFeatures, features, status, err, Size(10, 10), 3, termcrit, 0, 0.001);
+
+	return features;
+}
+
+Mat process(Mat img) {
+
+	Mat gray;
+	cvtColor(img, gray, CV_BGR2GRAY);
+
+	if (oldFeatures.empty()) {
+		Head head = findHead(img, gray);
+		vector<Point2f> features = findFeatures(img, gray, head.face);
+		oldFeatures = features;
+	} else {
+		oldFeatures = computeFlow(img, gray, oldFeatures);
+	}
+
+	for (uint i = 0; i < oldFeatures.size(); i++) {
+		circle(img, oldFeatures[i], 2, Scalar(0, 255, 0), 2);
+	}
+
+	gray.copyTo(oldGray);
 
 	return img;
 }

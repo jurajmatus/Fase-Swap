@@ -4,5 +4,5 @@
 
 USER_OBJS :=
 
-LIBS := -lopencv_core -lopencv_objdetect -lopencv_imgproc -lopencv_videoio -lopencv_imgcodecs -lopencv_highgui
+LIBS := -lopencv_core -lopencv_tracking -lopencv_objdetect -lopencv_imgproc -lopencv_videoio -lopencv_imgcodecs -lopencv_highgui
 

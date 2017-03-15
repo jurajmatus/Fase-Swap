@@ -7,6 +7,24 @@ using namespace std;
 CascadeClassifier faceDet;
 CascadeClassifier eyeDet;
 
+// Tracking data
+Mat oldGray;
+vector<Point2f> oldFeatures;
+
+const int NUM_FRAMES_TO_REFRESH = 15;
+void refresh(int* counter) {
+	(*counter)++;
+	if (*counter >= NUM_FRAMES_TO_REFRESH) {
+
+		*counter = 0;
+
+		oldGray.release();
+		oldGray = Mat();
+		oldFeatures.clear();
+
+	}
+}
+
 Head findHead(Mat img, Mat gray) {
 
 	Head head;
@@ -49,13 +67,10 @@ vector<Point2f> findFeatures(Mat img, Mat gray, Rect inside = Rect(0, 0, 0, 0)) 
 	return corners;
 }
 
-Mat oldGray;
-vector<Point2f> oldFeatures;
-
 vector<Point2f> computeFlow(Mat img, Mat gray, vector<Point2f> oldFeatures) {
 
 	vector<uchar> status;
-	vector<float> err;
+	Mat err;
 	vector<Point2f> features;
 
 	TermCriteria termcrit(TermCriteria::COUNT|TermCriteria::EPS,20,0.03);
@@ -101,7 +116,10 @@ int main(int argc, char** argv) {
 
 	namedWindow(WIN, WINDOW_AUTOSIZE);
 
+	int i = 0;
 	for (;;) {
+		refresh(&i);
+
 		cap >> frame;
 
 		imshow(WIN, process(frame));

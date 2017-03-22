@@ -1,5 +1,6 @@
 #include <opencv2/opencv.hpp>
 #include "structs.hpp"
+
 using namespace cv;
 using namespace std;
 
@@ -10,8 +11,12 @@ CascadeClassifier eyeDet;
 // Tracking data
 Mat oldGray;
 vector<Point2f> oldFeatures;
+Head head;
+vector<Point2f> detectedFeatures;
+Mat headTransform;
+Mat replHead;
 
-const int NUM_FRAMES_TO_REFRESH = 15;
+const int NUM_FRAMES_TO_REFRESH = 100;
 void refresh(int* counter) {
 	(*counter)++;
 	if (*counter >= NUM_FRAMES_TO_REFRESH) {
@@ -41,13 +46,35 @@ Head findHead(Mat img, Mat gray) {
 
 		eyeDet.detectMultiScale(faceROI, eyes, 1.1, 2,0 | CASCADE_SCALE_IMAGE, Size(30, 30));
 
-		if (eyes.size() < 2) {
+		if (eyes.size() < 1 || eyes.size() > 3) {
 			continue;
 		}
 
-		head.face = faces[i];
+		head.rect = faces[i];
 		head.eye1 = eyes[0];
-		head.eye2 = eyes[1];
+		if (eyes.size() >= 2) {
+			head.eye2 = eyes[1];
+		}
+
+		int x1 = head.rect.x;
+		int x2 = x1 + head.rect.width;
+		int y1 = head.rect.y;
+		int y2 = y1 + head.rect.height;
+
+		int xx = (x2 - x1) / 8;
+		int yy = (y2 - y1) / 8;
+		x1 += xx;
+		x2 -= xx;
+		y1 += yy * 2;
+		y2 -= yy;
+
+		head.face = Rect(x1, y1, x2 - x1, y2 - y1);
+		head.facePoints.push_back(Point(head.face.x, head.face.y));
+		head.facePoints.push_back(Point(head.face.x + head.face.width, head.face.y));
+		head.facePoints.push_back(Point(head.face.x + head.face.width, head.face.y + head.face.height));
+		head.facePoints.push_back(Point(head.face.x, head.face.y + head.face.height));
+
+		break;
 	}
 
 	return head;
@@ -62,9 +89,16 @@ vector<Point2f> findFeatures(Mat img, Mat gray, Rect inside = Rect(0, 0, 0, 0)) 
 		mask(inside) = 1;
 	}
 
-	goodFeaturesToTrack(gray, corners, 0, 0.01, 10, mask, 3, false, 0.04);
+	goodFeaturesToTrack(gray, corners, 0, 0.01, 6, mask, 3, false, 0.04);
 
-	return corners;
+	vector<int> indices;
+	vector<Point2f> hullPoints;
+	convexHull(corners, indices, false, false);
+	for (auto &i : indices) {
+		hullPoints.push_back(corners.at(i));
+	}
+
+	return hullPoints;
 }
 
 vector<Point2f> computeFlow(Mat img, Mat gray, vector<Point2f> oldFeatures) {
@@ -83,22 +117,59 @@ Mat process(Mat img) {
 
 	Mat gray;
 	cvtColor(img, gray, CV_BGR2GRAY);
+	vector<Point> facePoints;
 
 	if (oldFeatures.empty()) {
-		Head head = findHead(img, gray);
-		vector<Point2f> features = findFeatures(img, gray, head.face);
-		oldFeatures = features;
+		head = findHead(img, gray);
+		detectedFeatures = findFeatures(img, gray, head.rect);
+		oldFeatures = detectedFeatures;
+		facePoints = head.facePoints;
 	} else {
 		oldFeatures = computeFlow(img, gray, oldFeatures);
+		if (!head.facePoints.empty()) {
+			headTransform = estimateRigidTransform(detectedFeatures, oldFeatures, false);
+			transform(head.facePoints, facePoints, headTransform);
+		}
+	}
+
+	Mat trReplHead;
+	vector<Point> replPoints;
+	replPoints.push_back(Point(0, 0));
+	replPoints.push_back(Point(replHead.size().width, 0));
+	replPoints.push_back(Point(replHead.size().width, replHead.size().height));
+	replPoints.push_back(Point(0, replHead.size().height));
+	Mat replTransform = estimateRigidTransform(replPoints, facePoints, false);
+	Size replSize = Size(replHead.size().width, replHead.size().height);
+	warpAffine(replHead, trReplHead, replTransform, replSize);
+
+	for (int i = 0; i < replHead.rows; i++) {
+		for (int j = 0; j < replHead.cols; j++) {
+			img.at<Vec3b>(i + facePoints[0].y, j + facePoints[0].x) = replHead.at<Vec3b>(i, j);
+		}
+	}
+
+	for (uint i = 0; i < facePoints.size(); i++) {
+		circle(img, facePoints[i], 1, Scalar(255, 0, 0), 3);
 	}
 
 	for (uint i = 0; i < oldFeatures.size(); i++) {
-		circle(img, oldFeatures[i], 2, Scalar(0, 255, 0), 2);
+		circle(img, oldFeatures[i], 1, Scalar(0, 255, 0), 2);
 	}
 
 	gray.copyTo(oldGray);
 
 	return img;
+}
+
+Mat cropHead(Mat img) {
+
+	Mat gray;
+	cvtColor(img, gray, CV_BGR2GRAY);
+
+	Head _head = findHead(img, gray);
+	vector<Point2f> features = findFeatures(img, gray, _head.rect);
+
+	return _head.face.width > 0 ? img(_head.face) : Mat();
 }
 
 int main(int argc, char** argv) {
@@ -109,6 +180,8 @@ int main(int argc, char** argv) {
 	bool noError = faceDet.load("/usr/share/opencv/haarcascades/haarcascade_frontalface_default.xml");
 	noError = noError && eyeDet.load("/usr/share/opencv/haarcascades/haarcascade_eye.xml");
 	noError = noError && cap.isOpened();
+
+	replHead = cropHead(imread("./img/face1.jpg"));
 
 	if (!noError) {
 		return -1;

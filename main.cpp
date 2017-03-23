@@ -69,10 +69,10 @@ Head findHead(Mat img, Mat gray) {
 		y2 -= yy;
 
 		head.face = Rect(x1, y1, x2 - x1, y2 - y1);
-		head.facePoints.push_back(Point(head.face.x, head.face.y));
-		head.facePoints.push_back(Point(head.face.x + head.face.width, head.face.y));
-		head.facePoints.push_back(Point(head.face.x + head.face.width, head.face.y + head.face.height));
-		head.facePoints.push_back(Point(head.face.x, head.face.y + head.face.height));
+		head.facePoints.push_back(Point2f(head.face.x, head.face.y));
+		head.facePoints.push_back(Point2f(head.face.x + head.face.width, head.face.y));
+		head.facePoints.push_back(Point2f(head.face.x + head.face.width, head.face.y + head.face.height));
+		head.facePoints.push_back(Point2f(head.face.x, head.face.y + head.face.height));
 
 		break;
 	}
@@ -117,7 +117,7 @@ Mat process(Mat img) {
 
 	Mat gray;
 	cvtColor(img, gray, CV_BGR2GRAY);
-	vector<Point> facePoints;
+	vector<Point2f> facePoints;
 
 	if (oldFeatures.empty()) {
 		head = findHead(img, gray);
@@ -127,24 +127,30 @@ Mat process(Mat img) {
 	} else {
 		oldFeatures = computeFlow(img, gray, oldFeatures);
 		if (!head.facePoints.empty()) {
-			headTransform = estimateRigidTransform(detectedFeatures, oldFeatures, false);
-			transform(head.facePoints, facePoints, headTransform);
+			headTransform = estimateRigidTransform(detectedFeatures, oldFeatures, true);
+			if (!headTransform.empty()) {
+				transform(head.facePoints, facePoints, headTransform);
+			} else {
+				facePoints = head.facePoints;
+			}
 		}
 	}
 
-	Mat trReplHead;
-	vector<Point> replPoints;
-	replPoints.push_back(Point(0, 0));
-	replPoints.push_back(Point(replHead.size().width, 0));
-	replPoints.push_back(Point(replHead.size().width, replHead.size().height));
-	replPoints.push_back(Point(0, replHead.size().height));
-	Mat replTransform = estimateRigidTransform(replPoints, facePoints, false);
-	Size replSize = Size(replHead.size().width, replHead.size().height);
-	warpAffine(replHead, trReplHead, replTransform, replSize);
+	if (!facePoints.empty()) {
+		Mat trReplHead;
+		resize(replHead, trReplHead, Size(head.face.width, head.face.height));
+		vector<Point2f> replPoints;
+		replPoints.push_back(Point2f(0, 0));
+		replPoints.push_back(Point2f(trReplHead.size().width, 0));
+		replPoints.push_back(Point2f(trReplHead.size().width, trReplHead.size().height));
+		replPoints.push_back(Point2f(0, trReplHead.size().height));
+		Mat replTransform = findHomography(replPoints, facePoints, CV_RANSAC);
+		warpPerspective(trReplHead, trReplHead, replTransform, replHead.size());
 
-	for (int i = 0; i < replHead.rows; i++) {
-		for (int j = 0; j < replHead.cols; j++) {
-			img.at<Vec3b>(i + facePoints[0].y, j + facePoints[0].x) = replHead.at<Vec3b>(i, j);
+		for (int i = 0; i < trReplHead.rows; i++) {
+			for (int j = 0; j < trReplHead.cols; j++) {
+				img.at<Vec3b>(i + facePoints[0].y, j + facePoints[0].x) = trReplHead.at<Vec3b>(i, j);
+			}
 		}
 	}
 

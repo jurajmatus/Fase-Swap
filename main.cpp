@@ -1,5 +1,6 @@
 #include <opencv2/opencv.hpp>
 #include "structs.hpp"
+#include "func.h"
 
 using namespace cv;
 using namespace std;
@@ -16,17 +17,13 @@ vector<Point2f> detectedFeatures;
 Mat headTransform;
 Mat replHead;
 
-const int NUM_FRAMES_TO_REFRESH = 100;
+const int NUM_FRAMES_TO_REFRESH = 10;
+bool tryRefresh = true;
 void refresh(int* counter) {
 	(*counter)++;
 	if (*counter >= NUM_FRAMES_TO_REFRESH) {
-
 		*counter = 0;
-
-		oldGray.release();
-		oldGray = Mat();
-		oldFeatures.clear();
-
+		tryRefresh = true;
 	}
 }
 
@@ -69,10 +66,7 @@ Head findHead(Mat img, Mat gray) {
 		y2 -= yy;
 
 		head.face = Rect(x1, y1, x2 - x1, y2 - y1);
-		head.facePoints.push_back(Point2f(head.face.x, head.face.y));
-		head.facePoints.push_back(Point2f(head.face.x + head.face.width, head.face.y));
-		head.facePoints.push_back(Point2f(head.face.x + head.face.width, head.face.y + head.face.height));
-		head.facePoints.push_back(Point2f(head.face.x, head.face.y + head.face.height));
+		head.facePoints = rectToPoints(head.face);
 
 		break;
 	}
@@ -119,8 +113,14 @@ Mat process(Mat img) {
 	cvtColor(img, gray, CV_BGR2GRAY);
 	vector<Point2f> facePoints;
 
-	if (oldFeatures.empty()) {
-		head = findHead(img, gray);
+	Head _head;
+	if (tryRefresh) {
+		_head = findHead(img, gray);
+	}
+
+	if (!_head.facePoints.empty()) {
+		head = _head;
+		tryRefresh = false;
 		detectedFeatures = findFeatures(img, gray, head.rect);
 		oldFeatures = detectedFeatures;
 		facePoints = head.facePoints;
@@ -136,30 +136,22 @@ Mat process(Mat img) {
 		}
 	}
 
-	if (!facePoints.empty()) {
+	if (!facePoints.empty() && !replHead.empty()) {
 		Mat trReplHead;
-		resize(replHead, trReplHead, Size(head.face.width, head.face.height));
-		vector<Point2f> replPoints;
-		replPoints.push_back(Point2f(0, 0));
-		replPoints.push_back(Point2f(trReplHead.size().width, 0));
-		replPoints.push_back(Point2f(trReplHead.size().width, trReplHead.size().height));
-		replPoints.push_back(Point2f(0, trReplHead.size().height));
-		Mat replTransform = findHomography(replPoints, facePoints, CV_RANSAC);
-		warpPerspective(trReplHead, trReplHead, replTransform, replHead.size());
+		vector<Point2f> replPoints = matToPoints(replHead);
+		vector<Point2f> trReplPoints;
 
-		for (int i = 0; i < trReplHead.rows; i++) {
-			for (int j = 0; j < trReplHead.cols; j++) {
-				img.at<Vec3b>(i + facePoints[0].y, j + facePoints[0].x) = trReplHead.at<Vec3b>(i, j);
-			}
-		}
-	}
+		Mat replTransformPers = findHomography(replPoints, facePoints, CV_RANSAC);
+		Mat replTransform = estimateRigidTransform(replPoints, facePoints, true);
+		transform(replPoints, trReplPoints, replTransform);
 
-	for (uint i = 0; i < facePoints.size(); i++) {
-		circle(img, facePoints[i], 1, Scalar(255, 0, 0), 3);
-	}
+		Size trSize = pointsMax(trReplPoints);
+		Mat trMask = Mat::zeros(trSize, CV_8U);
+		auto trReplPointsI = pointsFToI(trReplPoints);
+		fillConvexPoly(trMask, trReplPointsI, Scalar(255));
 
-	for (uint i = 0; i < oldFeatures.size(); i++) {
-		circle(img, oldFeatures[i], 1, Scalar(0, 255, 0), 2);
+		warpPerspective(replHead, trReplHead, replTransformPers, trSize);
+		seamlessClone(trReplHead, img, trMask, pointsCenter(facePoints), img, NORMAL_CLONE);
 	}
 
 	gray.copyTo(oldGray);
@@ -187,8 +179,6 @@ int main(int argc, char** argv) {
 	noError = noError && eyeDet.load("/usr/share/opencv/haarcascades/haarcascade_eye.xml");
 	noError = noError && cap.isOpened();
 
-	replHead = cropHead(imread("./img/face1.jpg"));
-
 	if (!noError) {
 		return -1;
 	}
@@ -203,8 +193,15 @@ int main(int argc, char** argv) {
 
 		imshow(WIN, process(frame));
 
-		if (waitKey(30) != 255) {
+		int key = waitKey(1);
+
+		if (key == 27) {// ESC
 			break;
+		} else if (key == 48 || key == 176) {// 0
+			replHead.release();
+			replHead = Mat();
+		} else if (key == 49 || key == 177) {// 1
+			replHead = cropHead(imread("./img/face1.jpg"));
 		}
 	}
 

@@ -1,6 +1,7 @@
 #include <opencv2/opencv.hpp>
 #include "structs.hpp"
 #include "func.h"
+#include "dlib_test.hpp"
 
 using namespace cv;
 using namespace std;
@@ -171,6 +172,8 @@ Mat cropHead(Mat img) {
 }
 
 int main(int argc, char** argv) {
+	return executeDlib("data/face_features.dat", vector<string>({"./img/face1.jpg"}));
+
 	VideoCapture cap(0);
 	static const string WIN = "Face swapper";
 	Mat frame;

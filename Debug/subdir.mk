@@ -4,14 +4,17 @@
 
 # Add inputs and outputs from these tool invocations to the build variables 
 CPP_SRCS += \
+../dlib_test.cpp \
 ../func.cpp \
 ../main.cpp 
 
 OBJS += \
+./dlib_test.o \
 ./func.o \
 ./main.o 
 
 CPP_DEPS += \
+./dlib_test.d \
 ./func.d \
 ./main.d 
 

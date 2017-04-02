@@ -27,7 +27,41 @@ void refresh(int* counter) {
 	}
 }
 
-Head findHead(Mat img, Mat gray) {
+Mat estimateFaceMask(Mat& img, Rect inside) {
+
+	int histSize = 16;
+	vector<Mat> bgrPlanes;
+	split(img, bgrPlanes);
+	float range[] = {0, 256};
+	const float* histRange = {range};
+
+	vector<Mat> hists = {Mat(), Mat(), Mat()};
+	Mat mask = Mat::zeros(img.size(), CV_8U);
+	mask(inside) = 255;
+
+	for (int i = 0; i < 3; i++) {
+		calcHist(&bgrPlanes[i], 1, 0, mask, hists[i], 1, &histSize, &histRange, true, false);
+		normalize(hists[i], hists[i], 0, 1, NORM_MINMAX);
+	}
+
+	Mat faceMask = Mat::zeros(mask.size(), mask.type());
+	for (int row  = inside.y; row < inside.br().y; row++) {
+		for (int col = inside.x; col < inside.br().x; col++) {
+			bool yes = true;
+			for (int i = 0; i < 3; i++) {
+				// TODO - slider thresh, AND/OR
+				int index = bgrPlanes[i].at<uchar>(row, col) / 16;
+				yes = yes && (hists[i].at<float>(index, 0) > 0.5);
+			}
+			faceMask.at<uchar>(row, col) = yes ? 255 : 0;
+		}
+	}
+
+	return faceMask;
+
+}
+
+Head findHead(Mat& img, Mat& gray) {
 
 	Head head;
 
@@ -48,6 +82,7 @@ Head findHead(Mat img, Mat gray) {
 		}
 
 		head.rect = faces[i];
+
 		head.eye1 = eyes[0];
 		if (eyes.size() >= 2) {
 			head.eye2 = eyes[1];
@@ -58,15 +93,16 @@ Head findHead(Mat img, Mat gray) {
 		int y1 = head.rect.y;
 		int y2 = y1 + head.rect.height;
 
-		int xx = (x2 - x1) / 8;
-		int yy = (y2 - y1) / 8;
+		int xx = (x2 - x1) / 12;
+		int yy = (y2 - y1) / 12;
 		x1 += xx;
 		x2 -= xx;
 		y1 += yy * 2;
-		y2 -= yy;
 
 		head.face = Rect(x1, y1, x2 - x1, y2 - y1);
 		head.facePoints = rectToPoints(head.face);
+
+		imshow("Face mask", estimateFaceMask(img, head.face));
 
 		break;
 	}
@@ -74,7 +110,7 @@ Head findHead(Mat img, Mat gray) {
 	return head;
 }
 
-vector<Point2f> findFeatures(Mat img, Mat gray, Rect inside = Rect(0, 0, 0, 0)) {
+vector<Point2f> findFeatures(Mat& img, Mat& gray, Rect inside = Rect(0, 0, 0, 0)) {
 
 	vector<Point2f> corners;
 	Mat mask;
@@ -95,7 +131,7 @@ vector<Point2f> findFeatures(Mat img, Mat gray, Rect inside = Rect(0, 0, 0, 0)) 
 	return hullPoints;
 }
 
-vector<Point2f> computeFlow(Mat img, Mat gray, vector<Point2f> oldFeatures) {
+vector<Point2f> computeFlow(Mat& img, Mat& gray, vector<Point2f> oldFeatures) {
 
 	vector<uchar> status;
 	Mat err;
@@ -107,7 +143,7 @@ vector<Point2f> computeFlow(Mat img, Mat gray, vector<Point2f> oldFeatures) {
 	return features;
 }
 
-Mat process(Mat img) {
+Mat process(Mat& img) {
 
 	Mat gray;
 	cvtColor(img, gray, CV_BGR2GRAY);
@@ -159,7 +195,7 @@ Mat process(Mat img) {
 	return img;
 }
 
-Mat cropHead(Mat img) {
+Mat cropHead(Mat& img) {
 
 	Mat gray;
 	cvtColor(img, gray, CV_BGR2GRAY);
@@ -201,7 +237,8 @@ int main(int argc, char** argv) {
 			replHead.release();
 			replHead = Mat();
 		} else if (key == 49 || key == 177) {// 1
-			replHead = cropHead(imread("./img/face1.jpg"));
+			Mat face = imread("./img/face1.jpg");
+			replHead = cropHead(face);
 		}
 	}
 

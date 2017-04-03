@@ -27,11 +27,13 @@ void refresh(int* counter) {
 	}
 }
 
-Mat estimateFaceMask(Mat& img, Rect inside) {
+vector<Point2f> estimateFacePoints(Mat& img, Mat& gray, Rect inside) {
 
 	int histSize = 16;
-	vector<Mat> bgrPlanes;
-	split(img, bgrPlanes);
+	vector<Mat> planes;
+	Mat hsv;
+	cvtColor(img, hsv, CV_BGR2HSV);
+	split(hsv, planes);
 	float range[] = {0, 256};
 	const float* histRange = {range};
 
@@ -40,7 +42,7 @@ Mat estimateFaceMask(Mat& img, Rect inside) {
 	mask(inside) = 255;
 
 	for (int i = 0; i < 3; i++) {
-		calcHist(&bgrPlanes[i], 1, 0, mask, hists[i], 1, &histSize, &histRange, true, false);
+		calcHist(&planes[i], 1, 0, mask, hists[i], 1, &histSize, &histRange, true, false);
 		normalize(hists[i], hists[i], 0, 1, NORM_MINMAX);
 	}
 
@@ -48,16 +50,23 @@ Mat estimateFaceMask(Mat& img, Rect inside) {
 	for (int row  = inside.y; row < inside.br().y; row++) {
 		for (int col = inside.x; col < inside.br().x; col++) {
 			bool yes = true;
-			for (int i = 0; i < 3; i++) {
-				// TODO - slider thresh, AND/OR
-				int index = bgrPlanes[i].at<uchar>(row, col) / 16;
-				yes = yes && (hists[i].at<float>(index, 0) > 0.5);
+			float sum = 0;
+			for (int i = 0; i < 2; i++) {
+				int index = planes[i].at<uchar>(row, col) / 16;
+				//yes = yes && (hists[i].at<float>(index, 0) > 0.5);
+				sum += hists[i].at<float>(index, 0);
 			}
+			yes = yes && sum > 1.3;
 			faceMask.at<uchar>(row, col) = yes ? 255 : 0;
 		}
 	}
+	imshow("Face mask", faceMask);
 
-	return faceMask;
+	/*Mat edges;
+	Canny(gray, edges, 150, 450, 5);
+	imshow("Edges", edges);*/
+
+	return vector<Point2f>();
 
 }
 
@@ -97,12 +106,12 @@ Head findHead(Mat& img, Mat& gray) {
 		int yy = (y2 - y1) / 12;
 		x1 += xx;
 		x2 -= xx;
-		y1 += yy * 2;
+		y1 += yy;
 
 		head.face = Rect(x1, y1, x2 - x1, y2 - y1);
 		head.facePoints = rectToPoints(head.face);
 
-		imshow("Face mask", estimateFaceMask(img, head.face));
+		/*head.facePoints = */estimateFacePoints(img, gray, head.face);
 
 		break;
 	}

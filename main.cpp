@@ -27,7 +27,7 @@ void refresh(int* counter) {
 	}
 }
 
-vector<Point2f> estimateFacePoints(Mat& img, Mat& gray, Rect inside) {
+vector<Point> estimateFacePoints(Mat& img, Mat& gray, Rect inside) {
 
 	int histSize = 16;
 	vector<Mat> planes;
@@ -62,11 +62,28 @@ vector<Point2f> estimateFacePoints(Mat& img, Mat& gray, Rect inside) {
 	}
 	imshow("Face mask", faceMask);
 
-	/*Mat edges;
-	Canny(gray, edges, 150, 450, 5);
-	imshow("Edges", edges);*/
+	vector<vector<Point>> contours;
+	vector<Point> facePoints;
+	vector<Vec4i> hierarchy;
+	findContours(faceMask, contours, hierarchy, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+	if (contours.size() > 0) {
+		vector<Point> contour = *max_element(contours.begin(), contours.end(), [](vector<Point> v1, vector<Point> v2) {
+			return v1.size() < v2.size();
+		});
 
-	return vector<Point2f>();
+		convexHull(Mat(contour), facePoints);
+	} else {
+		facePoints = rectToPoints(inside);
+	}
+
+	RNG rng(12345);
+	Mat faceHullImg = Mat::zeros(img.size(), CV_8UC3);
+	vector<vector<Point>> polygons = {facePoints};
+	Scalar color = Scalar(rng.uniform(0, 255), rng.uniform(0,255), rng.uniform(0,255));
+	drawContours(faceHullImg, polygons, 0, color, 3, 8, hierarchy, 0, Point());
+	imshow("Contours", faceHullImg);
+
+	return facePoints;
 
 }
 
@@ -109,9 +126,8 @@ Head findHead(Mat& img, Mat& gray) {
 		y1 += yy;
 
 		head.face = Rect(x1, y1, x2 - x1, y2 - y1);
-		head.facePoints = rectToPoints(head.face);
-
-		/*head.facePoints = */estimateFacePoints(img, gray, head.face);
+		head.faceRectPoints = rectToPoints(head.face);
+		head.faceHullPoints = estimateFacePoints(img, gray, head.face);
 
 		break;
 	}
@@ -156,27 +172,27 @@ Mat process(Mat& img) {
 
 	Mat gray;
 	cvtColor(img, gray, CV_BGR2GRAY);
-	vector<Point2f> facePoints;
+	vector<Point> facePoints;
 
 	Head _head;
 	if (tryRefresh) {
 		_head = findHead(img, gray);
 	}
 
-	if (!_head.facePoints.empty()) {
+	if (!_head.faceRectPoints.empty()) {
 		head = _head;
 		tryRefresh = false;
 		detectedFeatures = findFeatures(img, gray, head.rect);
 		oldFeatures = detectedFeatures;
-		facePoints = head.facePoints;
+		facePoints = head.faceRectPoints;
 	} else {
 		oldFeatures = computeFlow(img, gray, oldFeatures);
-		if (!head.facePoints.empty()) {
+		if (!head.faceRectPoints.empty()) {
 			headTransform = estimateRigidTransform(detectedFeatures, oldFeatures, true);
 			if (!headTransform.empty()) {
-				transform(head.facePoints, facePoints, headTransform);
+				transform(head.faceRectPoints, facePoints, headTransform);
 			} else {
-				facePoints = head.facePoints;
+				facePoints = head.faceRectPoints;
 			}
 		}
 	}
@@ -187,16 +203,18 @@ Mat process(Mat& img) {
 		vector<Point2f> trReplPoints;
 
 		Mat replTransformPers = findHomography(replPoints, facePoints, CV_RANSAC);
-		Mat replTransform = estimateRigidTransform(replPoints, facePoints, true);
+		vector<Point2f> _facePoints = pointsToF(facePoints);
+		Mat replTransform = estimateRigidTransform(replPoints, _facePoints, true);
 		transform(replPoints, trReplPoints, replTransform);
 
-		Size trSize = pointsMax(trReplPoints);
+		Size trSize = pointsMax(pointsFToI(trReplPoints));
 		Mat trMask = Mat::zeros(trSize, CV_8U);
 		auto trReplPointsI = pointsFToI(trReplPoints);
 		fillConvexPoly(trMask, trReplPointsI, Scalar(255));
 
 		warpPerspective(replHead, trReplHead, replTransformPers, trSize);
-		seamlessClone(trReplHead, img, trMask, pointsCenter(facePoints), img, NORMAL_CLONE);
+		Point2f center = pointsCenter(facePoints);
+		seamlessClone(trReplHead, img, trMask, Point2i(center.x, center.y), img, NORMAL_CLONE);
 	}
 
 	gray.copyTo(oldGray);

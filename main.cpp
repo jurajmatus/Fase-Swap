@@ -16,6 +16,7 @@ Head head;
 vector<Point2f> detectedFeatures;
 Mat headTransform;
 Mat replHead;
+Head replHeadH;
 
 const int NUM_FRAMES_TO_REFRESH = 10;
 bool tryRefresh = true;
@@ -87,6 +88,44 @@ vector<Point> estimateFacePoints(Mat& img, Mat& gray, Rect inside) {
 
 }
 
+vector<Vec6f> triangluateHull(Mat& img, Mat& gray, Head& head) {
+
+	Subdiv2D subdiv(head.face);
+	for (auto &p : head.faceHullPoints) {
+		subdiv.insert(p);
+	}
+
+	vector<Vec6f> triangleList;
+	vector<Vec6f> ret;
+	subdiv.getTriangleList(triangleList);
+	vector<Point> p(3);
+
+	Mat triangles = Mat::zeros(img.size(), CV_8UC3);
+
+	for (auto &tr : triangleList) {
+		bool outside = false;
+		for (int i = 0; i < 3; i++) {
+			p[i] = Point(cvRound(tr[i * 2]), cvRound(tr[i * 2 + 1]));
+			if (!head.face.contains(p[i])) {
+				outside = true;
+				break;
+			}
+		}
+		if (outside) {
+			continue;
+		}
+		ret.push_back(tr);
+		for (int i = 0; i < 3; i++) {
+			line(triangles, p[i], p[(i + 1) % 3], Scalar(128, 128, 0), 2);
+		}
+	}
+
+	imshow("Triangulation", triangles);
+
+	return ret;
+
+}
+
 Head findHead(Mat& img, Mat& gray) {
 
 	Head head;
@@ -128,6 +167,7 @@ Head findHead(Mat& img, Mat& gray) {
 		head.face = Rect(x1, y1, x2 - x1, y2 - y1);
 		head.faceRectPoints = rectToPoints(head.face);
 		head.faceHullPoints = estimateFacePoints(img, gray, head.face);
+		head.faceTriangles = triangluateHull(img, gray, head);
 
 		break;
 	}
@@ -222,15 +262,15 @@ Mat process(Mat& img) {
 	return img;
 }
 
-Mat cropHead(Mat& img) {
+Mat cropHead(Mat& img, Head& head) {
 
 	Mat gray;
 	cvtColor(img, gray, CV_BGR2GRAY);
 
-	Head _head = findHead(img, gray);
-	vector<Point2f> features = findFeatures(img, gray, _head.rect);
+	head = findHead(img, gray);
+	vector<Point2f> features = findFeatures(img, gray, head.rect);
 
-	return _head.face.width > 0 ? img(_head.face) : Mat();
+	return head.face.width > 0 ? img(head.face) : Mat();
 }
 
 int main(int argc, char** argv) {
@@ -265,7 +305,7 @@ int main(int argc, char** argv) {
 			replHead = Mat();
 		} else if (key == 49 || key == 177) {// 1
 			Mat face = imread("./img/face1.jpg");
-			replHead = cropHead(face);
+			replHead = cropHead(face, replHeadH);
 		}
 	}
 

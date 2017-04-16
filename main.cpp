@@ -70,6 +70,7 @@ vector<Vec6f> triangluateHull(Mat& img, Face& face) {
 
 	Rect rect = Rect(0, 0, img.cols, img.rows);
 	Subdiv2D subdiv(rect);
+	// TODO - hull points
 	for (auto &p : face.points) {
 		subdiv.insert(Point2f(p.x, p.y));
 	}
@@ -94,23 +95,56 @@ vector<Vec6f> triangluateHull(Mat& img, Face& face) {
 		ret.push_back(tr);
 	}
 
-	cout << "Number of triangles: " << ret.size() << endl;
 	return ret;
+
+}
+
+void copyTriangle(Mat& src, vector<Point2f> srcTr, Mat& dst, vector<Point2f> dstTr) {
+
+	Rect srcR = boundingRect(srcTr);
+	Rect dstR = boundingRect(dstTr);
+
+	for (auto &p : srcTr) {
+		p.x -= srcR.x;
+		p.y -= srcR.y;
+	}
+	for (auto &p : dstTr) {
+		p.x -= dstR.x;
+		p.y -= dstR.y;
+	}
+
+	Mat small;
+	src(srcR).copyTo(small);
+
+	Mat transform = getAffineTransform(srcTr, dstTr);
+	Mat transformed = Mat::zeros(Size(dstR.width, dstR.height), dst.type());
+	warpAffine(src, transformed, transform, transformed.size(), INTER_LINEAR, BORDER_REFLECT_101);
+
+	Mat mask = Mat::zeros(transformed.size(), CV_8U);
+	vector<Point> maskTr = pointsFToI(dstTr);
+	fillConvexPoly(mask, maskTr, Scalar(255));
+
+	seamlessClone(transformed, dst, mask, pointsCenter(rectToPoints(dstR)), dst, NORMAL_CLONE);
 
 }
 
 void doSwap(Mat& src, Face& srcFace, Mat& dst, Face& dstFace) {
 
+	// TODO - cache
 	auto srcTriangles = triangluateHull(src, srcFace);
 	drawTriangles(src, "Triangulation - camera", srcTriangles);
 
 	auto dstTriangles = triangluateHull(dst, dstFace);
 	drawTriangles(src, "Triangulation - swap", dstTriangles);
 
-	for (int i = 0; i < min(srcTriangles.size(), dstTriangles.size()); i++) {
-		// TODO - compute transform
-		// TODO - transform part
-		// TODO - seamless clone
+	for (uint i = 0; i < min(srcTriangles.size(), dstTriangles.size()); i++) {
+
+		auto st = srcTriangles[i];
+		auto dt = dstTriangles[i];
+
+		vector<Point2f> srcPoints = {Point2f(st[0], st[1]), Point2f(st[2], st[3]), Point2f(st[4], st[5])};
+		vector<Point2f> dstPoints = {Point2f(dt[0], dt[1]), Point2f(dt[2], dt[3]), Point2f(dt[4], dt[5])};
+		copyTriangle(src, srcPoints, dst, dstPoints);
 	}
 
 }
@@ -123,11 +157,10 @@ Mat process(Mat& img) {
 	if (!refreshFace(img, gray)) {
 		findFace(img, gray);
 	}
-	drawFace(img, camFace);
 
-	/*
-		seamlessClone(trReplHead, img, trMask, pointsCenter(facePoints), img, NORMAL_CLONE);
-	}*/
+	if (!swapFace.points.empty() && !camFace.points.empty()) {
+		doSwap(swapFaceImg, swapFace, img, camFace);
+	}
 
 	return img;
 }

@@ -101,3 +101,9 @@ Rect hullToRect(vector<Point> hull) {
 
 	return Rect(minX, minY, maxX - minX, maxY - minY);
 }
+
+vector<Point> pointsToHull(vector<Point> points) {
+	vector<Point> hullPoints;
+	convexHull(Mat(points), hullPoints);
+	return hullPoints;
+}

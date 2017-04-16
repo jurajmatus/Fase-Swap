@@ -10,6 +10,7 @@
 #include <dlib/image_io.h>
 #include <dlib/opencv/cv_image.h>
 #include <iostream>
+#include "func.h"
 
 using namespace std;
 using namespace cv;
@@ -17,6 +18,7 @@ using namespace cv;
 typedef struct {
 	Rect rect;
 	vector<Point> points;
+	vector<Point> hullPoints;
 } Face;
 
 Face findFace(Mat& _img);

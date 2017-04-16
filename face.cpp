@@ -17,7 +17,6 @@ Face findFace(Mat& _img) {
 	dlib::assign_image(img, dlib::cv_image<dlib::bgr_pixel>(_img));
 
 	vector<dlib::rectangle> dets = detector(img);
-	cout << "Number of detections: " << dets.size() << endl;
 
 	vector<dlib::full_object_detection> shapes;
 	for (unsigned long j = 0; j < dets.size(); ++j) {
@@ -35,6 +34,7 @@ Face findFace(Mat& _img) {
 			face.points.push_back(Point(p.x(), p.y()));
 		}
 	}
+	face.hullPoints = pointsToHull(face.points);
 
 	return face;
 

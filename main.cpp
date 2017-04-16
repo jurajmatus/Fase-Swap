@@ -47,7 +47,72 @@ void drawFace(Mat& img, Face& face) {
 	for (auto &point : face.points) {
 		circle(img, point, 2, Scalar(0, 255, 0), 3);
 	}
-	rectangle(img, face.rect, Scalar(255, 0, 0), 2);
+}
+
+void drawTriangles(Mat& img, String name, vector<Vec6f> triangles) {
+
+	Mat drawing = Mat::zeros(img.size(), CV_8UC3);
+	vector<Point> p(3);
+
+	for (auto &tr : triangles) {
+		for (int i = 0; i < 3; i++) {
+			p[i] = Point(cvRound(tr[i * 2]), cvRound(tr[i * 2 + 1]));
+		}
+		for (int i = 0; i < 3; i++) {
+			line(drawing, p[i], p[(i + 1) % 3], Scalar(128, 128, 0), 2);
+		}
+	}
+
+	imshow(name, drawing);
+}
+
+vector<Vec6f> triangluateHull(Mat& img, Face& face) {
+
+	Rect rect = Rect(0, 0, img.cols, img.rows);
+	Subdiv2D subdiv(rect);
+	for (auto &p : face.points) {
+		subdiv.insert(Point2f(p.x, p.y));
+	}
+
+	vector<Vec6f> triangleList;
+	vector<Vec6f> ret;
+	subdiv.getTriangleList(triangleList);
+	vector<Point> p(3);
+
+	for (auto &tr : triangleList) {
+		bool outside = false;
+		for (int i = 0; i < 3; i++) {
+			p[i] = Point(cvRound(tr[i * 2]), cvRound(tr[i * 2 + 1]));
+			if (!rect.contains(p[i])) {
+				outside = true;
+				break;
+			}
+		}
+		if (outside) {
+			continue;
+		}
+		ret.push_back(tr);
+	}
+
+	cout << "Number of triangles: " << ret.size() << endl;
+	return ret;
+
+}
+
+void doSwap(Mat& src, Face& srcFace, Mat& dst, Face& dstFace) {
+
+	auto srcTriangles = triangluateHull(src, srcFace);
+	drawTriangles(src, "Triangulation - camera", srcTriangles);
+
+	auto dstTriangles = triangluateHull(dst, dstFace);
+	drawTriangles(src, "Triangulation - swap", dstTriangles);
+
+	for (int i = 0; i < min(srcTriangles.size(), dstTriangles.size()); i++) {
+		// TODO - compute transform
+		// TODO - transform part
+		// TODO - seamless clone
+	}
+
 }
 
 Mat process(Mat& img) {

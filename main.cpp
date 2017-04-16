@@ -1,31 +1,39 @@
 #include <opencv2/opencv.hpp>
-#include "structs.hpp"
+
+#include "face.hpp"
 #include "func.h"
-#include "dlib_test.hpp"
 
 using namespace cv;
 using namespace std;
 
-// Classifiers, Trackers
-CascadeClassifier faceDet;
-CascadeClassifier eyeDet;
-
-// Tracking data
-Mat oldGray;
-vector<Point2f> oldFeatures;
-Head head;
-vector<Point2f> detectedFeatures;
-Mat headTransform;
-Mat replHead;
-
 const int NUM_FRAMES_TO_REFRESH = 10;
-bool tryRefresh = true;
-void refresh(int* counter) {
-	(*counter)++;
-	if (*counter >= NUM_FRAMES_TO_REFRESH) {
-		*counter = 0;
-		tryRefresh = true;
+
+Face camFace;
+int camFaceAge = 0;
+Mat camFaceTransform;
+
+Face swapFace;
+
+void findFace(Mat img, Mat gray) {
+
+}
+
+Mat oldGray;
+bool refreshFace(Mat img, Mat gray) {
+	gray.copyTo(oldGray);
+	if (camFace.points.empty() || camFaceAge >= NUM_FRAMES_TO_REFRESH) {
+		return false;
 	}
+
+	vector<uchar> status;
+	Mat err;
+	vector<Point2f> oldFeatures = pointsToF(camFace.points);
+	vector<Point2f> features;
+
+	TermCriteria termcrit(TermCriteria::COUNT|TermCriteria::EPS,20,0.03);
+	calcOpticalFlowPyrLK(oldGray, gray, oldFeatures, features, status, err, Size(10, 10), 3, termcrit, 0, 0.001);
+
+	return true;
 }
 
 Head findHead(Mat img, Mat gray) {
@@ -172,8 +180,6 @@ Mat cropHead(Mat img) {
 }
 
 int main(int argc, char** argv) {
-	return executeDlib("data/face_features.dat", vector<string>({"./img/face1.jpg"}));
-
 	VideoCapture cap(0);
 	static const string WIN = "Face swapper";
 	Mat frame;

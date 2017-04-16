@@ -6,20 +6,21 @@
 using namespace cv;
 using namespace std;
 
-const int NUM_FRAMES_TO_REFRESH = 10;
+const int NUM_FRAMES_TO_REFRESH = 30;
 
 Face camFace;
 int camFaceAge = 0;
-Mat camFaceTransform;
 
+Mat swapFaceImg;
 Face swapFace;
 
-void findFace(Mat img, Mat gray) {
-
+void findFace(Mat& img, Mat& gray) {
+	camFace = findFace(img);
+	camFaceAge = 0;
 }
 
 Mat oldGray;
-bool refreshFace(Mat img, Mat gray) {
+bool refreshFace(Mat& img, Mat& gray) {
 	gray.copyTo(oldGray);
 	if (camFace.points.empty() || camFaceAge >= NUM_FRAMES_TO_REFRESH) {
 		return false;
@@ -27,190 +28,78 @@ bool refreshFace(Mat img, Mat gray) {
 
 	vector<uchar> status;
 	Mat err;
-	vector<Point2f> oldFeatures = pointsToF(camFace.points);
-	vector<Point2f> features;
+	vector<Point2f> oldPoints = pointsToF(camFace.points);
+	vector<Point2f> newPoints;
 
 	TermCriteria termcrit(TermCriteria::COUNT|TermCriteria::EPS,20,0.03);
-	calcOpticalFlowPyrLK(oldGray, gray, oldFeatures, features, status, err, Size(10, 10), 3, termcrit, 0, 0.001);
+	calcOpticalFlowPyrLK(oldGray, gray, oldPoints, newPoints, status, err, Size(10, 10), 3, termcrit, 0, 0.001);
 
+	if (newPoints.size() != oldPoints.size()) {
+		return false;
+	}
+	camFace.points = pointsFToI(newPoints);
+
+	camFaceAge++;
 	return true;
 }
 
-Head findHead(Mat img, Mat gray) {
-
-	Head head;
-
-	vector<Rect> faces;
-
-	faceDet.detectMultiScale(gray, faces, 1.1, 2, 0 | CASCADE_SCALE_IMAGE,
-			Size(30, 30));
-
-	for (uint i = 0; i < faces.size(); i++) {
-
-		Mat faceROI = gray(faces[i]);
-		std::vector<Rect> eyes;
-
-		eyeDet.detectMultiScale(faceROI, eyes, 1.1, 2,0 | CASCADE_SCALE_IMAGE, Size(30, 30));
-
-		if (eyes.size() < 1 || eyes.size() > 3) {
-			continue;
-		}
-
-		head.rect = faces[i];
-		head.eye1 = eyes[0];
-		if (eyes.size() >= 2) {
-			head.eye2 = eyes[1];
-		}
-
-		int x1 = head.rect.x;
-		int x2 = x1 + head.rect.width;
-		int y1 = head.rect.y;
-		int y2 = y1 + head.rect.height;
-
-		int xx = (x2 - x1) / 8;
-		int yy = (y2 - y1) / 8;
-		x1 += xx;
-		x2 -= xx;
-		y1 += yy * 2;
-		y2 -= yy;
-
-		head.face = Rect(x1, y1, x2 - x1, y2 - y1);
-		head.facePoints = rectToPoints(head.face);
-
-		break;
+void drawFace(Mat& img, Face& face) {
+	for (auto &point : face.points) {
+		circle(img, point, 2, Scalar(0, 255, 0), 3);
 	}
-
-	return head;
+	rectangle(img, face.rect, Scalar(255, 0, 0), 2);
 }
 
-vector<Point2f> findFeatures(Mat img, Mat gray, Rect inside = Rect(0, 0, 0, 0)) {
-
-	vector<Point2f> corners;
-	Mat mask;
-	if (inside.width > 0) {
-		mask = Mat::zeros(img.size(), CV_8U);
-		mask(inside) = 1;
-	}
-
-	goodFeaturesToTrack(gray, corners, 0, 0.01, 6, mask, 3, false, 0.04);
-
-	vector<int> indices;
-	vector<Point2f> hullPoints;
-	convexHull(corners, indices, false, false);
-	for (auto &i : indices) {
-		hullPoints.push_back(corners.at(i));
-	}
-
-	return hullPoints;
-}
-
-vector<Point2f> computeFlow(Mat img, Mat gray, vector<Point2f> oldFeatures) {
-
-	vector<uchar> status;
-	Mat err;
-	vector<Point2f> features;
-
-	TermCriteria termcrit(TermCriteria::COUNT|TermCriteria::EPS,20,0.03);
-	calcOpticalFlowPyrLK(oldGray, gray, oldFeatures, features, status, err, Size(10, 10), 3, termcrit, 0, 0.001);
-
-	return features;
-}
-
-Mat process(Mat img) {
+Mat process(Mat& img) {
 
 	Mat gray;
 	cvtColor(img, gray, CV_BGR2GRAY);
-	vector<Point2f> facePoints;
 
-	Head _head;
-	if (tryRefresh) {
-		_head = findHead(img, gray);
+	if (!refreshFace(img, gray)) {
+		findFace(img, gray);
 	}
+	drawFace(img, camFace);
 
-	if (!_head.facePoints.empty()) {
-		head = _head;
-		tryRefresh = false;
-		detectedFeatures = findFeatures(img, gray, head.rect);
-		oldFeatures = detectedFeatures;
-		facePoints = head.facePoints;
-	} else {
-		oldFeatures = computeFlow(img, gray, oldFeatures);
-		if (!head.facePoints.empty()) {
-			headTransform = estimateRigidTransform(detectedFeatures, oldFeatures, true);
-			if (!headTransform.empty()) {
-				transform(head.facePoints, facePoints, headTransform);
-			} else {
-				facePoints = head.facePoints;
-			}
-		}
-	}
-
-	if (!facePoints.empty() && !replHead.empty()) {
-		Mat trReplHead;
-		vector<Point2f> replPoints = matToPoints(replHead);
-		vector<Point2f> trReplPoints;
-
-		Mat replTransformPers = findHomography(replPoints, facePoints, CV_RANSAC);
-		Mat replTransform = estimateRigidTransform(replPoints, facePoints, true);
-		transform(replPoints, trReplPoints, replTransform);
-
-		Size trSize = pointsMax(trReplPoints);
-		Mat trMask = Mat::zeros(trSize, CV_8U);
-		auto trReplPointsI = pointsFToI(trReplPoints);
-		fillConvexPoly(trMask, trReplPointsI, Scalar(255));
-
-		warpPerspective(replHead, trReplHead, replTransformPers, trSize);
+	/*
 		seamlessClone(trReplHead, img, trMask, pointsCenter(facePoints), img, NORMAL_CLONE);
-	}
-
-	gray.copyTo(oldGray);
+	}*/
 
 	return img;
 }
 
-Mat cropHead(Mat img) {
-
-	Mat gray;
-	cvtColor(img, gray, CV_BGR2GRAY);
-
-	Head _head = findHead(img, gray);
-	vector<Point2f> features = findFeatures(img, gray, _head.rect);
-
-	return _head.face.width > 0 ? img(_head.face) : Mat();
-}
-
 int main(int argc, char** argv) {
 	VideoCapture cap(0);
-	static const string WIN = "Face swapper";
+	static const string WIN = "Face swapper - camera";
+	static const string WIN_SW = "Face swapper - swap";
 	Mat frame;
-
-	bool noError = faceDet.load("/usr/share/opencv/haarcascades/haarcascade_frontalface_default.xml");
-	noError = noError && eyeDet.load("/usr/share/opencv/haarcascades/haarcascade_eye.xml");
-	noError = noError && cap.isOpened();
+	bool noError = cap.isOpened();
 
 	if (!noError) {
 		return -1;
 	}
 
 	namedWindow(WIN, WINDOW_AUTOSIZE);
+	namedWindow(WIN_SW, WINDOW_AUTOSIZE);
 
-	int i = 0;
 	for (;;) {
-		refresh(&i);
-
 		cap >> frame;
 
 		imshow(WIN, process(frame));
+		if (!swapFaceImg.empty()) {
+			imshow(WIN_SW, swapFaceImg);
+		}
 
 		int key = waitKey(1);
 
 		if (key == 27) {// ESC
 			break;
 		} else if (key == 48 || key == 176) {// 0
-			replHead.release();
-			replHead = Mat();
+			swapFaceImg.release();
+			swapFaceImg = Mat();
 		} else if (key == 49 || key == 177) {// 1
-			replHead = cropHead(imread("./img/face1.jpg"));
+			swapFaceImg = imread("./img/face1.jpg");
+			swapFace = findFace(swapFaceImg);
+			drawFace(swapFaceImg, swapFace);
 		}
 	}
 

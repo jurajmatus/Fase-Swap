@@ -83,3 +83,21 @@ Size pointsMax(vector<Point> points) {
 
 	return Size(maxX, maxY);
 }
+
+Rect hullToRect(vector<Point> hull) {
+	vector<float> xs, ys;
+	xs.resize(hull.size());
+	std::transform(hull.begin(), hull.end(), xs.begin(), [](Point p) {
+		return p.x;
+	});
+	ys.resize(hull.size());
+	std::transform(hull.begin(), hull.end(), ys.begin(), [](Point p) {
+		return p.y;
+	});
+	float maxX = *max_element(xs.begin(), xs.end());
+	float maxY = *max_element(ys.begin(), ys.end());
+	float minX = *min_element(xs.begin(), xs.end());
+	float minY = *min_element(ys.begin(), ys.end());
+
+	return Rect(minX, minY, maxX - minX, maxY - minY);
+}

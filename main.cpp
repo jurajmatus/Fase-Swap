@@ -28,6 +28,24 @@ void refresh(int* counter) {
 	}
 }
 
+void drawTriagnles(Mat& img, String name, vector<Vec6f> triangles) {
+
+
+	Mat drawing = Mat::zeros(img.size(), CV_8UC3);
+	vector<Point> p(3);
+
+	for (auto &tr : triangles) {
+		for (int i = 0; i < 3; i++) {
+			p[i] = Point(cvRound(tr[i * 2]), cvRound(tr[i * 2 + 1]));
+		}
+		for (int i = 0; i < 3; i++) {
+			line(drawing, p[i], p[(i + 1) % 3], Scalar(128, 128, 0), 2);
+		}
+	}
+
+	imshow(name, drawing);
+}
+
 vector<Point> estimateFacePoints(Mat& img, Mat& gray, Rect inside) {
 
 	int histSize = 16;
@@ -61,7 +79,6 @@ vector<Point> estimateFacePoints(Mat& img, Mat& gray, Rect inside) {
 			faceMask.at<uchar>(row, col) = yes ? 255 : 0;
 		}
 	}
-	imshow("Face mask", faceMask);
 
 	vector<vector<Point>> contours;
 	vector<Point> facePoints;
@@ -82,7 +99,6 @@ vector<Point> estimateFacePoints(Mat& img, Mat& gray, Rect inside) {
 	vector<vector<Point>> polygons = {facePoints};
 	Scalar color = Scalar(rng.uniform(0, 255), rng.uniform(0,255), rng.uniform(0,255));
 	drawContours(faceHullImg, polygons, 0, color, 3, 8, hierarchy, 0, Point());
-	imshow("Contours", faceHullImg);
 
 	return facePoints;
 
@@ -100,8 +116,6 @@ vector<Vec6f> triangluateHull(Mat& img, Mat& gray, Head& head) {
 	subdiv.getTriangleList(triangleList);
 	vector<Point> p(3);
 
-	Mat triangles = Mat::zeros(img.size(), CV_8UC3);
-
 	for (auto &tr : triangleList) {
 		bool outside = false;
 		for (int i = 0; i < 3; i++) {
@@ -115,12 +129,7 @@ vector<Vec6f> triangluateHull(Mat& img, Mat& gray, Head& head) {
 			continue;
 		}
 		ret.push_back(tr);
-		for (int i = 0; i < 3; i++) {
-			line(triangles, p[i], p[(i + 1) % 3], Scalar(128, 128, 0), 2);
-		}
 	}
-
-	imshow("Triangulation", triangles);
 
 	return ret;
 
@@ -217,6 +226,7 @@ Mat process(Mat& img) {
 	Head _head;
 	if (tryRefresh) {
 		_head = findHead(img, gray);
+		drawTriagnles(img, "Triangles cam", _head.faceTriangles);
 	}
 
 	if (!_head.faceRectPoints.empty()) {
@@ -234,6 +244,8 @@ Mat process(Mat& img) {
 			} else {
 				facePoints = head.faceRectPoints;
 			}
+		} else {
+			tryRefresh = true;
 		}
 	}
 
@@ -245,7 +257,12 @@ Mat process(Mat& img) {
 		Mat replTransformPers = findHomography(replPoints, facePoints, CV_RANSAC);
 		vector<Point2f> _facePoints = pointsToF(facePoints);
 		Mat replTransform = estimateRigidTransform(replPoints, _facePoints, true);
-		transform(replPoints, trReplPoints, replTransform);
+		vector<Point2f> replHullPoints = pointsToF(replHeadH.faceHullPoints);
+		for (auto &point : replHullPoints) {
+			point.x -= replHeadH.face.x;
+			point.y -= replHeadH.face.y;
+		}
+		transform(replHullPoints, trReplPoints, replTransform);
 
 		Size trSize = pointsMax(pointsFToI(trReplPoints));
 		Mat trMask = Mat::zeros(trSize, CV_8U);
@@ -306,6 +323,7 @@ int main(int argc, char** argv) {
 		} else if (key == 49 || key == 177) {// 1
 			Mat face = imread("./img/face1.jpg");
 			replHead = cropHead(face, replHeadH);
+			drawTriagnles(face, "Triangles saved", replHeadH.faceTriangles);
 		}
 	}
 

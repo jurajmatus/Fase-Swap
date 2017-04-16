@@ -14,5 +14,6 @@ vector<Point2f> pointsToF(vector<Point> points);
 vector<Point2f> pointsIToF(vector<Point> points);
 Point pointsCenter(vector<Point> points);
 Size pointsMax(vector<Point> points);
+Rect hullToRect(vector<Point> hull);
 
 #endif

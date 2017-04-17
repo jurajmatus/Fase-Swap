@@ -21,8 +21,13 @@ void findFace(Mat& img, Mat& gray) {
 
 Mat oldGray;
 bool refreshFace(Mat& img, Mat& gray) {
-	gray.copyTo(oldGray);
+	return false;
+
 	if (camFace.points.empty() || camFaceAge >= NUM_FRAMES_TO_REFRESH) {
+		return false;
+	}
+	if (oldGray.empty()) {
+		gray.copyTo(oldGray);
 		return false;
 	}
 
@@ -39,6 +44,7 @@ bool refreshFace(Mat& img, Mat& gray) {
 	}
 	camFace.points = pointsFToI(newPoints);
 
+	gray.copyTo(oldGray);
 	camFaceAge++;
 	return true;
 }
@@ -70,7 +76,6 @@ vector<Vec6f> triangluateHull(Mat& img, Face& face) {
 
 	Rect rect = Rect(0, 0, img.cols, img.rows);
 	Subdiv2D subdiv(rect);
-	// TODO - hull points
 	for (auto &p : face.points) {
 		subdiv.insert(Point2f(p.x, p.y));
 	}
@@ -118,34 +123,102 @@ void copyTriangle(Mat& src, vector<Point2f> srcTr, Mat& dst, vector<Point2f> dst
 
 	Mat transform = getAffineTransform(srcTr, dstTr);
 	Mat transformed = Mat::zeros(Size(dstR.width, dstR.height), dst.type());
-	warpAffine(src, transformed, transform, transformed.size(), INTER_LINEAR, BORDER_REFLECT_101);
+	warpAffine(small, transformed, transform, transformed.size());
 
-	Mat mask = Mat::zeros(transformed.size(), CV_8U);
-	vector<Point> maskTr = pointsFToI(dstTr);
-	fillConvexPoly(mask, maskTr, Scalar(255));
+	Mat srcMask = Mat::zeros(transformed.size(), CV_8U);
+	vector<Point> srcMaskTr = pointsFToI(dstTr);
+	fillConvexPoly(srcMask, srcMaskTr, Scalar(255));
 
-	seamlessClone(transformed, dst, mask, pointsCenter(rectToPoints(dstR)), dst, NORMAL_CLONE);
+	transformed.copyTo(dst(dstR), srcMask);
 
+}
+
+void extractFace(Mat& img, Mat& outputFaceImg, Mat& outputFaceMask, Face& face) {
+	Rect rect = boundingRect(face.hullPoints);
+	Size size = Size(rect.width, rect.height);
+	outputFaceMask = Mat::zeros(size, CV_8U);
+
+	vector<Point> hull = face.hullPoints;
+	for (auto &p : hull) {
+		p.x -= rect.x;
+		p.y -= rect.y;
+	}
+	fillConvexPoly(outputFaceMask, hull, Scalar(255));
+
+	img(rect).copyTo(outputFaceImg, outputFaceMask);
 }
 
 void doSwap(Mat& src, Face& srcFace, Mat& dst, Face& dstFace) {
 
-	// TODO - cache
+	vector<Point2f> srcPoints = pointsToF(srcFace.points);
+	Rect srcRect = boundingRect(srcPoints);
+	for (auto &p : srcPoints) {
+		p.x -= srcRect.x;
+		p.y -= srcRect.y;
+	}
+
+	vector<Point2f> dstPoints = pointsToF(dstFace.points);
+	Rect dstRect = boundingRect(dstPoints);
+	for (auto &p : dstPoints) {
+		p.x -= dstRect.x;
+		p.y -= dstRect.y;
+	}
+
+	Mat homography = findHomography(srcPoints, dstPoints);
+
+	Mat face1, mask1;
+	extractFace(src, face1, mask1, srcFace);
+
+	Mat face2, mask2;
+	warpPerspective(face1, face2, homography, Size(dstRect.width, dstRect.height));
+
+	mask2 = Mat::zeros(face2.size(), CV_8U);
+	vector<Point> maskPoints = dstFace.hullPoints;
+	for (auto &p : maskPoints) {
+		p.x -= dstRect.x;
+		p.y -= dstRect.y;
+	}
+	fillConvexPoly(mask2, maskPoints, Scalar(255));
+
+	seamlessClone(face2, dst, mask2, pointsCenter(rectToPoints(dstRect)), dst, NORMAL_CLONE);
+
+}
+
+void doSwapByTriangluation(Mat& src, Face& srcFace, Mat& dst, Face& dstFace) {
 	auto srcTriangles = triangluateHull(src, srcFace);
-	drawTriangles(src, "Triangulation - camera", srcTriangles);
+	drawTriangles(src, "Triangulation - swap", srcTriangles);
 
 	auto dstTriangles = triangluateHull(dst, dstFace);
-	drawTriangles(src, "Triangulation - swap", dstTriangles);
+	drawTriangles(src, "Triangulation - camera", dstTriangles);
+	Rect dstRect = boundingRect(dstFace.hullPoints);
 
-	for (uint i = 0; i < min(srcTriangles.size(), dstTriangles.size()); i++) {
+	Size newFaceS = Size(dstRect.width, dstRect.height);
+	Mat newFace = Mat::zeros(newFaceS, dst.type());
+	Mat newFaceMask = Mat::zeros(newFaceS, CV_8U);
+
+	uint l = min(srcTriangles.size(), dstTriangles.size());
+	for (uint i = 0; i < l; i++) {
 
 		auto st = srcTriangles[i];
 		auto dt = dstTriangles[i];
 
 		vector<Point2f> srcPoints = {Point2f(st[0], st[1]), Point2f(st[2], st[3]), Point2f(st[4], st[5])};
 		vector<Point2f> dstPoints = {Point2f(dt[0], dt[1]), Point2f(dt[2], dt[3]), Point2f(dt[4], dt[5])};
-		copyTriangle(src, srcPoints, dst, dstPoints);
+		for (auto &p : dstPoints) {
+			p.x -= max(0, dstRect.x);
+			p.y -= max(0, dstRect.y);
+		}
+		copyTriangle(src, srcPoints, newFace, dstPoints);
 	}
+
+	vector<Point> newFacePoints = dstFace.hullPoints;
+	for (auto &p : newFacePoints) {
+		p.x -= dstRect.x;
+		p.y -= dstRect.y;
+	}
+	fillConvexPoly(newFaceMask, newFacePoints, Scalar(255));
+
+	seamlessClone(newFace, dst, newFaceMask, pointsCenter(rectToPoints(dstRect)), dst, NORMAL_CLONE);
 
 }
 
@@ -177,7 +250,6 @@ int main(int argc, char** argv) {
 	}
 
 	namedWindow(WIN, WINDOW_AUTOSIZE);
-	namedWindow(WIN_SW, WINDOW_AUTOSIZE);
 
 	for (;;) {
 		cap >> frame;
@@ -194,10 +266,17 @@ int main(int argc, char** argv) {
 		} else if (key == 48 || key == 176) {// 0
 			swapFaceImg.release();
 			swapFaceImg = Mat();
-		} else if (key == 49 || key == 177) {// 1
-			swapFaceImg = imread("./img/face1.jpg");
+		} else if ((key >= 49 && key <= 55) || (key >= 177 && key <= 183)) {// 1 - 7
+			int num = key - 48;
+			if (num < 1 || num > 7) {
+				num = key - 176;
+			}
+			if (num < 1 || num > 7) {
+				num = 1;
+			}
+
+			swapFaceImg = imread(format("./img/face%d.jpg", num));
 			swapFace = findFace(swapFaceImg);
-			drawFace(swapFaceImg, swapFace);
 		}
 	}
 

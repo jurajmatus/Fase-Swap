@@ -255,9 +255,6 @@ int main(int argc, char** argv) {
 		cap >> frame;
 
 		imshow(WIN, process(frame));
-		if (!swapFaceImg.empty()) {
-			imshow(WIN_SW, swapFaceImg);
-		}
 
 		int key = waitKey(1);
 

@@ -320,8 +320,16 @@ int main(int argc, char** argv) {
 		} else if (key == 48 || key == 176) {// 0
 			replHead.release();
 			replHead = Mat();
-		} else if (key == 49 || key == 177) {// 1
-			Mat face = imread("./img/face1.jpg");
+		} else if ((key >= 49 && key <= 56) || (key >= 177 && key <= 183)) {// 1 - 7
+			int num = key - 48;
+			if (num < 1 || num > 7) {
+				num = key - 176;
+			}
+			if (num < 1 || num > 7) {
+				num = 1;
+			}
+
+			Mat face = imread(format("./img/face%d.jpg", num));
 			replHead = cropHead(face, replHeadH);
 			drawTriagnles(face, "Triangles saved", replHeadH.faceTriangles);
 		}

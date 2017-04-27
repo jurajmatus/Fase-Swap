@@ -21,6 +21,6 @@ typedef struct {
 	vector<Point> hullPoints;
 } Face;
 
-Face findFace(Mat& _img);
+vector<Face> findFaces(Mat& _img);
 
 #endif

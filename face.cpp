@@ -4,7 +4,7 @@ static const string datFile = "data/face_features.dat";
 static dlib::shape_predictor sp;
 bool spInitialized = false;
 
-Face findFace(Mat& _img) {
+vector<Face> findFaces(Mat& _img) {
 
 	if (!spInitialized) {
 		dlib::deserialize(datFile) >> sp;
@@ -24,18 +24,23 @@ Face findFace(Mat& _img) {
 		shapes.push_back(shape);
 	}
 
-	Face face;
+	vector<Face> faces;
 
-	if (shapes.size() > 0) {
-		face.rect = Rect(dets[0].left(), dets[0].top(), dets[0].width(), dets[0].height());
-		auto shape = shapes[0];
+	for (uint i = 0; i < min(shapes.size(), dets.size()); i++) {
+		auto shape = shapes[i];
+		auto det = dets[i];
+		Face face;
+		face.rect = Rect(det.left(), det.top(), det.width(), det.height());
+
 		for (uint i = 0; i < shape.num_parts(); i++) {
 			auto p = shape.part(i);
 			face.points.push_back(Point(p.x(), p.y()));
 		}
-	}
-	face.hullPoints = pointsToHull(face.points);
+		face.hullPoints = pointsToHull(face.points);
 
-	return face;
+		faces.push_back(face);
+	}
+
+	return faces;
 
 }

@@ -1,3 +1,8 @@
+/**
+ * PROGRAM FLOW:
+ * main loop (-> read frame -> process (-> find faces -> do swap) -> draw frame with swapped faces)
+ */
+
 #include <opencv2/opencv.hpp>
 
 #include "face.hpp"

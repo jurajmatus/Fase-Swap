@@ -47,7 +47,7 @@ for (uint i = 0; i < min(shapes.size(), dets.size()); i++) {
 }
 ```
 
-![face points]()
+![face points](doc/dlib.png)
 
 2. Shift points of both faces relative to their bounding box
 
@@ -94,7 +94,7 @@ fillConvexPoly(mask1, hull, Scalar(255));
 img(rect).copyTo(face1, mask1);
 ```
 
-![extracted face]()
+![extracted face](doc/extracted-face.png)
 
 5. Transform extracted face into another separate subimage
 
@@ -102,6 +102,8 @@ img(rect).copyTo(face1, mask1);
 Mat face2, mask2;
 warpPerspective(face1, face2, homography, Size(dstRect.width, dstRect.height));
 ```
+
+![transformed face](doc/transformed-face.png)
 
 6. Find mask of transformed face in the subimage
 	
@@ -115,13 +117,15 @@ for (auto &p : maskPoints) {
 fillConvexPoly(mask2, maskPoints, Scalar(255));
 ```
 
+![transformed mask](doc/transformed-mask.png)
+
 7. Seamlessly clone (performs color blending) transformed face into destination image
 
 ```c++
 seamlessClone(face2, dst, mask2, pointsCenter(rectToPoints(dstRect)), dst, NORMAL_CLONE);
 ```
 
-![the result]()
+![the result](doc/res-homography.png)
 
 # The result
 
